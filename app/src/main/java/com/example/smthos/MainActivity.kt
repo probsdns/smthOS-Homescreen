@@ -517,7 +517,7 @@ private fun SmthOS() {
             )
 
             Text(
-                text = "Terminal Launcher · v1.0 | Developed by Ranveer | probsdns",
+                text = "Terminal Launcher · v1.1 | Developed by Ranveer | probsdns",
                 color = TerminalWhite,
                 style = MaterialTheme.typography.bodySmall,
                 fontFamily = FontFamily.Monospace
@@ -589,7 +589,7 @@ private fun SmthOS() {
                 )
             )
         }
-
+        
         if (!WindowInsets.isImeVisible) {
             Box(
                 modifier = Modifier.align(Alignment.BottomCenter)
