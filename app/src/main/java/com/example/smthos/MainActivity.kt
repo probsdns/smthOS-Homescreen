@@ -33,51 +33,52 @@ private val TerminalWhite = Color.White
 private val TerminalBlack = Color.Black
 
 private val folders = linkedMapOf(
-    "fun" to listOf(
+    "a" to listOf(
         "Among Us",
         "Geometry Dash",
-        "Roblox",
-        "Spotify",
         "Offline Games",
-        "Sonolus",
         "Paper.io 2",
-        "Phone",
-        "Gallery"
+        "Roblox",
+        "Sonolus",
+        "Spotify"
     ),
-
-    "???" to listOf(
-        "Chat",
-        "Discord",
-        "YouTube",
-        "Messages",
-        "Chrome",
-        "Contacts"
-    ),
-
-    "tools" to listOf(
+    "b" to listOf(
+        "Amazon Shopping",
         "BuildCores",
+        "Calculator",
+        "Chrome",
+        "Compass",
+        "eBay",
+        "Kit",
+        "Play Store",
+        "Segway Mobility",
+        "Store",
+        "Temu",
         "Termux",
-        "Settings",
-        "My Files",
-        "Notes",
-        "Screen time",
-        "Clock",
+        "Wallet"
+    ),
+    "c" to listOf(
         "Calendar",
+        "Camera",
+        "Clock",
+        "Contacts",
+        "Gallery",
         "Gmail",
         "Maps",
-        "Weather",
-        "eBay",
-        "Amazon Shopping",
-        "Camera",
+        "My Files",
+        "Notes",
+        "Phone",
         "Samsung Pass",
-        "Store",
-        "Play Store",
-        "Compass",
-        "Calculator",
-        "Segway Mobility",
-        "Temu",
-        "Wallet",
-        "Kit"
+        "Settings",
+        "Weather"
+    ),
+    "?" to listOf(
+        "ChatGPT",
+        "Discord",
+        "Google Chat",
+        "Messages",
+        "TikTok",
+        "YouTube"
     )
 )
 
@@ -87,11 +88,8 @@ private data class PhoneApp(
     val activityName: String
 )
 
-private fun normalize(value: String): String {
-    return value.lowercase().filter {
-        it.isLetterOrDigit()
-    }
-}
+private fun normalize(value: String): String =
+    value.lowercase().filter { it.isLetterOrDigit() }
 
 private fun installedApps(context: Context): List<PhoneApp> {
     val intent = Intent(Intent.ACTION_MAIN).apply {
@@ -158,7 +156,6 @@ class MainActivity : ComponentActivity() {
 
 @Composable
 private fun BinaryNavigationDecoration() {
-
     val density = LocalDensity.current
 
     val navigationHeight =
@@ -184,7 +181,6 @@ private fun BinaryNavigationDecoration() {
             .background(TerminalBlack),
         contentAlignment = Alignment.CenterStart
     ) {
-
         val reservedRight = 155.dp
         val leftPadding = 16.dp
 
@@ -224,7 +220,6 @@ private fun BinaryNavigationDecoration() {
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun SmthOS() {
-
     val context = LocalContext.current
 
     val apps = remember(context) {
@@ -239,57 +234,61 @@ private fun SmthOS() {
         mutableStateOf<String?>(null)
     }
 
-
-    var output by remember {
-        mutableStateOf(
-            listOf(
-                "Work in progress some features might break so ye",
-                "",
-                """
-                      \         /
-                       \       /
-                    .-----------.
-                   /             \
-                  |   o       o   |
-                  |               |
-                   \_____________/
-                 .-----------------.
-              .--|                 |--.
-              |  |                 |  |
-              |  |                 |  |
-              |  |                 |  |
-              '--|                 |--'
-                 '-----------------'
-                    |   |   |   |
-                    |   |   |   |
-                    '---'   '---'
+    val startupOutput = remember {
+        listOf(
+            "Work in progress some features might break so ye",
+            "",
+            """
+                  \         /
+                   \       /
+                .-----------.
+               /             \
+              |   o       o   |
+              |               |
+               \_____________/
+             .-----------------.
+          .--|                 |--.
+          |  |                 |  |
+          |  |                 |  |
+          |  |                 |  |
+          '--|                 |--'
+             '-----------------'
+                |   |   |   |
+                |   |   |   |
+                '---'   '---'
             """.trimIndent()
-            )
         )
     }
 
-    val scrollState = rememberScrollState(
-    )
+    var output by remember {
+        mutableStateOf(startupOutput)
+    }
+
+    val scrollState = rememberScrollState()
 
     LaunchedEffect(output) {
-        scrollState.animateScrollTo(
-            scrollState.maxValue
-        )
+        scrollState.animateScrollTo(scrollState.maxValue)
     }
 
     fun print(message: String) {
         output = output + message
     }
 
-    fun launchApp(requestedName: String) {
+    fun showFolder(folder: String) {
+        currentFolder = folder
 
-        val name = requestedName.trim()
+        val folderApps = folders[folder].orEmpty()
 
-        if (name.isEmpty()) {
-            print("Enter an app name.")
-            return
+        val entries = folderApps.mapIndexed { index, app ->
+            val shortcut = ('a'.code + index).toChar()
+            "$shortcut  $app"
         }
 
+        print("[$folder] (${folderApps.size} apps)")
+        print(entries.joinToString("\n"))
+    }
+
+    fun launchApp(requestedName: String) {
         val folder = currentFolder
 
         if (folder == null) {
@@ -298,107 +297,107 @@ private fun SmthOS() {
         }
 
         val folderApps = folders[folder].orEmpty()
+        val requested = requestedName.trim()
 
-        val requested = normalize(name)
+        if (requested.isEmpty()) {
+            print("Enter an app shortcut.")
+            return
+        }
 
-        val allowedApp = folderApps.firstOrNull {
-            normalize(it) == requested
+        val index = if (
+            requested.length == 1 &&
+            requested[0].lowercaseChar() in 'a'..'z'
+        ) {
+            requested[0].lowercaseChar() - 'a'
+        } else {
+            -1
+        }
+
+        val allowedApp = if (index in folderApps.indices) {
+            folderApps[index]
+        } else {
+            folderApps.firstOrNull {
+                normalize(it) == normalize(requested)
+            }
         }
 
         if (allowedApp == null) {
-            print("App not found in $folder: $name")
-            print("Type 'back' to return to home.")
+            print("App not found in $folder: $requested")
             return
         }
 
-        if (normalize(allowedApp) == "playstore") {
-            try {
-                val playStorePackage = "com.android.vending"
+        val packageAliases = mapOf(
+            "ChatGPT" to "com.openai.chatgpt",
+            "Discord" to "com.discord",
+            "Google Chat" to "com.google.android.apps.dynamite",
+            "Messages" to "com.google.android.apps.messaging",
+            "TikTok" to "com.zhiliaoapp.musically",
+            "YouTube" to "com.google.android.youtube",
+            "Chrome" to "com.android.chrome",
+            "Play Store" to "com.android.vending"
+        )
 
-                val installedPlayStore = apps.firstOrNull {
-                    it.packageName == playStorePackage
-                }
+        val nameAliases = mapOf(
+            "Google Chat" to "Chat",
+            "Store" to "Galaxy Store",
+            "Play Store" to "Google Play Store",
+            "Notes" to "Samsung Notes"
+        )
 
-                val playStoreIntent =
-                    if (installedPlayStore != null) {
-                        Intent(Intent.ACTION_MAIN).apply {
-                            addCategory(Intent.CATEGORY_LAUNCHER)
-                            setClassName(
-                                installedPlayStore.packageName,
-                                installedPlayStore.activityName
-                            )
-                            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                        }
-                    } else {
-                        context.packageManager.getLaunchIntentForPackage(
-                            playStorePackage
-                        )
-                    }
+        val packageName = packageAliases[allowedApp]
 
-                if (playStoreIntent != null) {
-                    context.startActivity(playStoreIntent)
-                    print("Launching Play Store...")
-                } else {
-                    print("Unable to find Play Store.")
-                }
-
-            } catch (_: Exception) {
-                print("Unable to launch Play Store.")
+        val packageMatch = if (packageName != null) {
+            apps.firstOrNull {
+                it.packageName == packageName
             }
-
-            return
+        } else {
+            null
         }
 
-        val aliases = mapOf(
-            "chat" to "chat",
-            "store" to "galaxy store",
-            "play store" to "google play store",
-            "screen time" to "screen time",
-            "notes" to "samsung notes",
-            "my files" to "my files"
-        )
+        val targetName =
+            nameAliases[allowedApp] ?: allowedApp
 
-        val target = normalize(
-            aliases[allowedApp.lowercase()] ?: allowedApp
-        )
+        val target = normalize(targetName)
 
-        val match = apps.firstOrNull {
+        val nameMatch = apps.firstOrNull {
             normalize(it.name) == target
         } ?: apps.firstOrNull {
             normalize(it.name).contains(target)
         }
 
-        if (match == null) {
-            print("App not found: $name")
-            print("Type 'apps' to see detected apps.")
-            return
-        }
+        val match = packageMatch ?: nameMatch
 
         try {
-            val launchIntent = Intent(
-                Intent.ACTION_MAIN
-            ).apply {
-                addCategory(Intent.CATEGORY_LAUNCHER)
+            val launchIntent = if (match != null) {
+                Intent(Intent.ACTION_MAIN).apply {
+                    addCategory(Intent.CATEGORY_LAUNCHER)
 
-                setClassName(
-                    match.packageName,
-                    match.activityName
-                )
+                    setClassName(
+                        match.packageName,
+                        match.activityName
+                    )
 
-                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                }
+            } else if (packageName != null) {
+                context.packageManager
+                    .getLaunchIntentForPackage(packageName)
+            } else {
+                null
             }
 
-            context.startActivity(launchIntent)
-
-            print("Launching ${match.name}...")
-
+            if (launchIntent != null) {
+                context.startActivity(launchIntent)
+                print("Launching $allowedApp...")
+            } else {
+                print("App not found: $allowedApp")
+            }
         } catch (_: Exception) {
-            print("Unable to launch $name.")
+            print("Unable to launch $allowedApp.")
         }
     }
 
     fun runCommand() {
-
         val command = input.trim()
 
         if (command.isEmpty()) return
@@ -406,7 +405,7 @@ private fun SmthOS() {
         input = ""
 
         if (command.equals("clear", ignoreCase = true)) {
-            output = emptyList()
+            output = startupOutput
             return
         }
 
@@ -416,22 +415,21 @@ private fun SmthOS() {
         val lower = command.lowercase()
 
         when {
-
             lower == "help" -> {
                 print(
                     """
                     FOLDERS
-                    tools  - Tools folder
-                    ???    - Socials folder
-                    fun    - Fun folder
-                    back   - Return to home
+                    a  - Games & Media
+                    b  - Tools & Shopping
+                    c  - System & Utilities
 
-                    APPS
-                    apps         - All detected apps
-                    open [name]  - Open app in current folder
-                    [app name]   - Open app in current folder
+                    NAVIGATION
+                    a-z          - Launch app by shortcut
+                    back         - Return to home
+                    /            - Return to home
 
                     SYSTEM
+                    apps          - All detected apps
                     notifications - Notification help
                     control       - Android Settings
                     clear         - Clear terminal
@@ -440,7 +438,7 @@ private fun SmthOS() {
                 )
             }
 
-            lower == "back" || lower == "home" -> {
+            lower == "back" || lower == "/" -> {
                 if (currentFolder == null) {
                     print("Already at home.")
                 } else {
@@ -450,22 +448,18 @@ private fun SmthOS() {
             }
 
             folders.containsKey(lower) -> {
-
-                currentFolder = lower
-
-                val folderApps = folders[lower].orEmpty()
-
-                print(
-                    "${lower.uppercase()} (${folderApps.size} apps)"
-                )
-
-                print(
-                    folderApps.joinToString("\n")
-                )
+                if (
+                    currentFolder != null &&
+                    lower.length == 1 &&
+                    lower != "?"
+                ) {
+                    launchApp(lower)
+                } else {
+                    showFolder(lower)
+                }
             }
 
             lower == "apps" -> {
-
                 if (apps.isEmpty()) {
                     print("No apps detected.")
                 } else {
@@ -494,9 +488,7 @@ private fun SmthOS() {
             }
 
             lower.startsWith("open ") -> {
-                launchApp(
-                    command.substring(5)
-                )
+                launchApp(command.substring(5))
             }
 
             else -> {
@@ -510,7 +502,6 @@ private fun SmthOS() {
             .fillMaxSize()
             .background(TerminalBlack)
     ) {
-
         Column(
             modifier = Modifier
                 .fillMaxSize()
@@ -518,7 +509,6 @@ private fun SmthOS() {
                 .imePadding()
                 .padding(20.dp)
         ) {
-
             Text(
                 text = "smthOS",
                 color = TerminalWhite,
@@ -527,7 +517,7 @@ private fun SmthOS() {
             )
 
             Text(
-                text = "Terminal Launcher · v0.1 | Developed by Ranveer | Probsdns",
+                text = "Terminal Launcher · v1.0 | Developed by Ranveer | probsdns",
                 color = TerminalWhite,
                 style = MaterialTheme.typography.bodySmall,
                 fontFamily = FontFamily.Monospace
@@ -545,9 +535,7 @@ private fun SmthOS() {
                     .verticalScroll(scrollState),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-
                 output.forEach { line ->
-
                     Text(
                         text = line,
                         color = TerminalWhite,
@@ -569,7 +557,8 @@ private fun SmthOS() {
 
                 prefix = {
                     Text(
-                        if (currentFolder == null) ">" else "$currentFolder>",
+                        if (currentFolder == null) ">"
+                        else "$currentFolder>",
                         color = TerminalWhite
                     )
                 },
