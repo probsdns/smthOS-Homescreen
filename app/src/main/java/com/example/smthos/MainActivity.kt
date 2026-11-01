@@ -117,13 +117,140 @@ private fun installedApps(context: Context): List<PhoneApp> {
     }
 }
 
+private val preferredNames = mapOf(
+    "Google Chat" to "Chat",
+    "Google Maps" to "Maps",
+    "Google Drive" to "Drive",
+    "Google Play Store" to "Play Store",
+    "Samsung Notes" to "Notes",
+    "Samsung Health" to "Health"
+)
+
+private val packageAliases = mapOf(
+    "ChatGPT" to "com.openai.chatgpt",
+    "Discord" to "com.discord",
+    "Google Chat" to "com.google.android.apps.dynamite",
+    "Messages" to "com.google.android.apps.messaging",
+    "TikTok" to "com.zhiliaoapp.musically",
+    "YouTube" to "com.google.android.youtube",
+    "Chrome" to "com.android.chrome",
+    "Play Store" to "com.android.vending"
+)
+
+private fun appKey(app: PhoneApp): String =
+    "${app.packageName}/${app.activityName}"
+
+private fun displayName(app: PhoneApp): String =
+    preferredNames[app.name] ?: app.name
+
+private fun threeLetterCandidates(name: String): List<String> {
+    val words = name.lowercase()
+        .split(Regex("[^a-z0-9]+"))
+        .filter { it.isNotEmpty() }
+
+    val result = mutableListOf<String>()
+
+    for (word in words) {
+        if (word.length >= 3) {
+            result.add(word.take(3))
+        }
+    }
+
+    val merged = words.joinToString("")
+
+    if (merged.length >= 3) {
+        result.add(merged.take(3))
+
+        for (i in 1..merged.length - 3) {
+            result.add(merged.substring(i, i + 3))
+        }
+    }
+
+    return result.distinct()
+}
+
+private fun buildAliases(
+    context: Context,
+    apps: List<PhoneApp>
+): Map<String, PhoneApp> {
+    val prefs = context.getSharedPreferences(
+        "smthos_quick_launch",
+        Context.MODE_PRIVATE
+    )
+
+    val used = mutableSetOf<String>()
+    val aliases = linkedMapOf<String, PhoneApp>()
+
+    val ordered = apps.sortedWith(
+        compareBy<PhoneApp>(
+            { displayName(it).lowercase() },
+            { appKey(it) }
+        )
+    )
+
+    // Restore previously assigned shortcuts.
+    for (app in ordered) {
+        val saved = prefs.getString(appKey(app), null)
+
+        if (
+            saved != null &&
+            saved.length == 3 &&
+            saved.all {
+                it in 'a'..'z' || it in '0'..'9'
+            } &&
+            used.add(saved)
+        ) {
+            aliases[saved] = app
+        }
+    }
+
+    val editor = prefs.edit()
+
+    for (app in ordered) {
+        if (
+            aliases.values.any {
+                appKey(it) == appKey(app)
+            }
+        ) continue
+
+        val candidates =
+            threeLetterCandidates(displayName(app)) +
+                    threeLetterCandidates(app.name)
+
+        val alias = candidates.firstOrNull {
+            it !in used
+        } ?: (
+                ('a'..'z').flatMap { a ->
+                    ('a'..'z').flatMap { b ->
+                        ('a'..'z').map { c ->
+                            "$a$b$c"
+                        }
+                    }
+                }
+                ).firstOrNull {
+                it !in used
+            } ?: continue
+
+        used.add(alias)
+        aliases[alias] = app
+        editor.putString(appKey(app), alias)
+    }
+
+    editor.apply()
+
+    return aliases
+}
+
 class MainActivity : ComponentActivity() {
 
     @Suppress("DEPRECATION")
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        WindowCompat.setDecorFitsSystemWindows(window, false)
+        WindowCompat.setDecorFitsSystemWindows(
+            window,
+            false
+        )
 
         window.navigationBarColor =
             android.graphics.Color.TRANSPARENT
@@ -197,7 +324,10 @@ private fun BinaryNavigationDecoration() {
                 .toInt() - 7)
                 .coerceAtLeast(0)
 
-        val binaryText = remember(binaryTick, digitCount) {
+        val binaryText = remember(
+            binaryTick,
+            digitCount
+        ) {
             List(digitCount) {
                 if (Random.nextBoolean()) "1" else "0"
             }.joinToString(" ")
@@ -224,6 +354,10 @@ private fun SmthOS() {
 
     val apps = remember(context) {
         installedApps(context)
+    }
+
+    val aliases = remember(context, apps) {
+        buildAliases(context, apps)
     }
 
     var input by remember {
@@ -267,7 +401,9 @@ private fun SmthOS() {
     val scrollState = rememberScrollState()
 
     LaunchedEffect(output) {
-        scrollState.animateScrollTo(scrollState.maxValue)
+        scrollState.animateScrollTo(
+            scrollState.maxValue
+        )
     }
 
     fun print(message: String) {
@@ -279,24 +415,45 @@ private fun SmthOS() {
 
         val folderApps = folders[folder].orEmpty()
 
-        val entries = folderApps.mapIndexed { index, app ->
-            val shortcut = ('a'.code + index).toChar()
-            "$shortcut  $app"
+        val entries = folderApps.map { app ->
+            app
         }
 
         print("[$folder] (${folderApps.size} apps)")
         print(entries.joinToString("\n"))
     }
 
-    fun launchApp(requestedName: String) {
-        val folder = currentFolder
+    fun launchTarget(
+        app: PhoneApp,
+        label: String = displayName(app)
+    ) {
+        try {
+            val intent = Intent(
+                Intent.ACTION_MAIN
+            ).apply {
+                addCategory(
+                    Intent.CATEGORY_LAUNCHER
+                )
 
-        if (folder == null) {
-            print("nah :)")
-            return
+                setClassName(
+                    app.packageName,
+                    app.activityName
+                )
+
+                addFlags(
+                    Intent.FLAG_ACTIVITY_NEW_TASK
+                )
+            }
+
+            context.startActivity(intent)
+            print("Launching $label...")
+
+        } catch (_: Exception) {
+            print("Unable to launch $label.")
         }
+    }
 
-        val folderApps = folders[folder].orEmpty()
+    fun launchApp(requestedName: String) {
         val requested = requestedName.trim()
 
         if (requested.isEmpty()) {
@@ -304,96 +461,89 @@ private fun SmthOS() {
             return
         }
 
-        val index = if (
-            requested.length == 1 &&
-            requested[0].lowercaseChar() in 'a'..'z'
-        ) {
-            requested[0].lowercaseChar() - 'a'
-        } else {
-            -1
-        }
+        val key = requested.lowercase()
 
-        val allowedApp = if (index in folderApps.indices) {
-            folderApps[index]
-        } else {
-            folderApps.firstOrNull {
-                normalize(it) == normalize(requested)
-            }
-        }
-
-        if (allowedApp == null) {
-            print("App not found in $folder: $requested")
+        // Three-letter shortcuts work everywhere.
+        aliases[key]?.let {
+            launchTarget(it)
             return
         }
 
-        val packageAliases = mapOf(
-            "ChatGPT" to "com.openai.chatgpt",
-            "Discord" to "com.discord",
-            "Google Chat" to "com.google.android.apps.dynamite",
-            "Messages" to "com.google.android.apps.messaging",
-            "TikTok" to "com.zhiliaoapp.musically",
-            "YouTube" to "com.google.android.youtube",
-            "Chrome" to "com.android.chrome",
-            "Play Store" to "com.android.vending"
-        )
+        val folder = currentFolder
 
-        val nameAliases = mapOf(
-            "Google Chat" to "Chat",
-            "Store" to "Galaxy Store",
-            "Play Store" to "Google Play Store",
-            "Notes" to "Samsung Notes"
-        )
+        if (folder != null) {
+            val folderApps =
+                folders[folder].orEmpty()
 
-        val packageName = packageAliases[allowedApp]
-
-        val packageMatch = if (packageName != null) {
-            apps.firstOrNull {
-                it.packageName == packageName
+            val index = if (
+                key.length == 1 &&
+                key[0] in 'a'..'z'
+            ) {
+                key[0] - 'a'
+            } else {
+                -1
             }
-        } else {
-            null
-        }
 
-        val targetName =
-            nameAliases[allowedApp] ?: allowedApp
-
-        val target = normalize(targetName)
-
-        val nameMatch = apps.firstOrNull {
-            normalize(it.name) == target
-        } ?: apps.firstOrNull {
-            normalize(it.name).contains(target)
-        }
-
-        val match = packageMatch ?: nameMatch
-
-        try {
-            val launchIntent = if (match != null) {
-                Intent(Intent.ACTION_MAIN).apply {
-                    addCategory(Intent.CATEGORY_LAUNCHER)
-
-                    setClassName(
-                        match.packageName,
-                        match.activityName
-                    )
-
-                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            val folderName =
+                if (index in folderApps.indices) {
+                    folderApps[index]
+                } else {
+                    folderApps.firstOrNull {
+                        normalize(it) ==
+                                normalize(requested)
+                    }
                 }
-            } else if (packageName != null) {
-                context.packageManager
-                    .getLaunchIntentForPackage(packageName)
-            } else {
-                null
-            }
 
-            if (launchIntent != null) {
-                context.startActivity(launchIntent)
-                print("Launching $allowedApp...")
-            } else {
-                print("App not found: $allowedApp")
+            if (folderName != null) {
+                val packageName =
+                    packageAliases[folderName]
+
+                val targetName =
+                    when (folderName) {
+                        "Store" -> "Galaxy Store"
+                        "Play Store" -> "Google Play Store"
+                        "Notes" -> "Samsung Notes"
+                        "Google Chat" -> "Chat"
+                        else -> folderName
+                    }
+
+                val match = apps.firstOrNull {
+                    it.packageName == packageName &&
+                            packageName != null
+                } ?: apps.firstOrNull {
+                    normalize(it.name) ==
+                            normalize(targetName)
+                } ?: apps.firstOrNull {
+                    normalize(it.name).contains(
+                        normalize(targetName)
+                    )
+                }
+
+                if (match != null) {
+                    launchTarget(match, folderName)
+                } else {
+                    print("App not found: $folderName")
+                }
+
+                return
             }
-        } catch (_: Exception) {
-            print("Unable to launch $allowedApp.")
+        }
+
+        // Full app names also work from anywhere.
+        val match = apps.firstOrNull {
+            normalize(it.name) ==
+                    normalize(requested) ||
+                    normalize(displayName(it)) ==
+                    normalize(requested)
+        }
+
+        if (match != null) {
+            launchTarget(match)
+        } else {
+            print(
+                "App not found: $requested. " +
+                        "Type aliases to see shortcuts."
+            )
         }
     }
 
@@ -404,12 +554,19 @@ private fun SmthOS() {
 
         input = ""
 
-        if (command.equals("clear", ignoreCase = true)) {
+        if (
+            command.equals(
+                "clear",
+                ignoreCase = true
+            )
+        ) {
             output = startupOutput
             return
         }
 
-        val location = currentFolder ?: "home"
+        val location =
+            currentFolder ?: "home"
+
         print("$location > $command")
 
         val lower = command.lowercase()
@@ -424,7 +581,8 @@ private fun SmthOS() {
                     c  - System & Utilities
 
                     NAVIGATION
-                    a-z          - Launch app by shortcut
+                    abc          - Quick launch by 3 letters
+                    aliases      - View app shortcuts
                     back         - Return to home
                     /            - Return to home
 
@@ -439,12 +597,8 @@ private fun SmthOS() {
             }
 
             lower == "back" || lower == "/" -> {
-                if (currentFolder == null) {
-                    print("Already at home.")
-                } else {
-                    currentFolder = null
-                    print("Returned to home.")
-                }
+                currentFolder = null
+                output = startupOutput
             }
 
             folders.containsKey(lower) -> {
@@ -457,6 +611,19 @@ private fun SmthOS() {
                 } else {
                     showFolder(lower)
                 }
+            }
+
+            lower == "aliases" -> {
+                print(
+                    aliases.toSortedMap()
+                        .entries.joinToString("\n") {
+                                (alias, app) ->
+
+                            "$alias  ${displayName(app)}"
+                        }.ifEmpty {
+                            "No apps detected."
+                        }
+                )
             }
 
             lower == "apps" -> {
@@ -472,23 +639,43 @@ private fun SmthOS() {
             }
 
             lower == "notifications" -> {
-                print("Swipe down from the top to view notifications.")
-                print("Direct panel controls are coming later.")
+                print(
+                    "Swipe down from the top " +
+                            "to view notifications."
+                )
+                print(
+                    "Direct panel controls " +
+                            "are coming later."
+                )
             }
 
             lower == "control" -> {
                 try {
                     context.startActivity(
-                        Intent(Settings.ACTION_SETTINGS)
+                        Intent(
+                            Settings.ACTION_SETTINGS
+                        )
                     )
-                    print("Opening Android Settings...")
+
+                    print(
+                        "Opening Android Settings..."
+                    )
                 } catch (_: Exception) {
-                    print("Unable to open Settings.")
+                    print(
+                        "Unable to open Settings."
+                    )
                 }
             }
 
+            lower.length == 3 &&
+                    aliases.containsKey(lower) -> {
+                launchApp(lower)
+            }
+
             lower.startsWith("open ") -> {
-                launchApp(command.substring(5))
+                launchApp(
+                    command.substring(5)
+                )
             }
 
             else -> {
@@ -517,14 +704,16 @@ private fun SmthOS() {
             )
 
             Text(
-                text = "Terminal Launcher · v1.1 | Developed by Ranveer | probsdns",
+                text = "Terminal Launcher · v1.2-wip | Developed by Ranveer | probsdns",
                 color = TerminalWhite,
                 style = MaterialTheme.typography.bodySmall,
                 fontFamily = FontFamily.Monospace
             )
 
             HorizontalDivider(
-                modifier = Modifier.padding(vertical = 16.dp),
+                modifier = Modifier.padding(
+                    vertical = 16.dp
+                ),
                 color = TerminalWhite
             )
 
@@ -533,7 +722,8 @@ private fun SmthOS() {
                     .weight(1f)
                     .fillMaxWidth()
                     .verticalScroll(scrollState),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
+                verticalArrangement =
+                    Arrangement.spacedBy(8.dp)
             ) {
                 output.forEach { line ->
                     Text(
@@ -551,14 +741,19 @@ private fun SmthOS() {
 
             OutlinedTextField(
                 value = input,
-                onValueChange = { input = it },
+                onValueChange = {
+                    input = it
+                },
                 modifier = Modifier.fillMaxWidth(),
                 singleLine = true,
 
                 prefix = {
                     Text(
-                        if (currentFolder == null) ">"
-                        else "$currentFolder>",
+                        if (currentFolder == null) {
+                            ">"
+                        } else {
+                            "$currentFolder>"
+                        },
                         color = TerminalWhite
                     )
                 },
@@ -575,7 +770,9 @@ private fun SmthOS() {
                 ),
 
                 keyboardActions = KeyboardActions(
-                    onGo = { runCommand() }
+                    onGo = {
+                        runCommand()
+                    }
                 ),
 
                 colors = OutlinedTextFieldDefaults.colors(
@@ -589,10 +786,12 @@ private fun SmthOS() {
                 )
             )
         }
-        
+
         if (!WindowInsets.isImeVisible) {
             Box(
-                modifier = Modifier.align(Alignment.BottomCenter)
+                modifier = Modifier.align(
+                    Alignment.BottomCenter
+                )
             ) {
                 BinaryNavigationDecoration()
             }
