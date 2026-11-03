@@ -29,15 +29,12 @@ import androidx.core.view.WindowCompat
 import kotlinx.coroutines.delay
 import kotlin.random.Random
 
-// Only the clean version number appears in the app.
-// GitHub branch names do not affect this.
-private const val SMTHOS_VERSION = "v1.3"
+private const val SMTHOS_VERSION = "v1.4"
 
 private val TerminalWhite = Color.White
 private val TerminalBlack = Color.Black
 
-// These apps are hidden from normal listings and aliases.
-// They can only be launched from inside the ? folder.
+// Hidden apps only work inside the ? folder.
 private val hiddenApps = listOf(
     "ChatGPT",
     "Discord",
@@ -47,7 +44,6 @@ private val hiddenApps = listOf(
     "YouTube"
 )
 
-// Helps resolve apps whose actual installed labels differ.
 private val knownPackages = mapOf(
     "ChatGPT" to "com.openai.chatgpt",
     "Discord" to "com.discord",
@@ -146,42 +142,176 @@ private fun resolveHiddenApp(
     }
 }
 
-private fun aliasCandidates(name: String): List<String> {
-    val words = name.lowercase()
-        .split(Regex("[^a-z0-9]+"))
-        .filter { it.isNotEmpty() }
+// -------------------------------------------------
+// v1.4 DYNAMIC PREFIX SYSTEM
+// -------------------------------------------------
+//
+// Minimum: 2 letters.
+//
+// Examples:
+// Spotify -> sp
+// Steam   -> st
+//
+// Chat    -> ch
+// ChatGPT -> chatg
+//
+// Shorter names get priority when names overlap.
+//
+// Longer valid prefixes also work:
+// ch, cha, chat -> Chat
+// chatg, chatgp, chatgpt -> ChatGPT
+//
+// Visible and hidden apps use separate directories.
+// -------------------------------------------------
 
-    val combined = words.joinToString("")
-    val candidates = mutableListOf<String>()
+private fun generateAliases(
+    shortcuts: List<AppShortcut>
+): Map<String, AppShortcut> {
+    val result = linkedMapOf<String, AppShortcut>()
 
-    for (word in words) {
-        if (word.length >= 3) {
-            candidates.add(word.take(3))
+    val ordered = shortcuts.sortedWith(
+        compareBy<AppShortcut>(
+            { normalize(it.label).length },
+            { normalize(it.label) },
+            { appKey(it.app) }
+        )
+    )
+
+    for (shortcut in ordered) {
+        val name = normalize(shortcut.label)
+
+        if (name.isEmpty()) continue
+
+        val minimum = minOf(2, name.length)
+        var chosen: String? = null
+
+        // Find the shortest prefix that does not belong
+        // to an earlier, shorter app name.
+        for (length in minimum..name.length) {
+            val candidate = name.take(length)
+
+            val overlapsEarlierApp = result.values.any {
+                val earlierName = normalize(it.label)
+
+                earlierName.startsWith(candidate) ||
+                        candidate.startsWith(earlierName)
+            }
+
+            if (
+                !overlapsEarlierApp &&
+                candidate !in result
+            ) {
+                chosen = candidate
+                break
+            }
         }
-    }
 
-    if (combined.length >= 3) {
-        for (i in 0..combined.length - 3) {
-            candidates.add(
-                combined.substring(i, i + 3)
+        // If two apps have identical names, create
+        // a fallback using their package names.
+        if (chosen == null) {
+            val packagePart = normalize(
+                shortcut.app.packageName
+                    .substringAfterLast(".")
             )
+
+            val activityPart = normalize(
+                shortcut.app.activityName
+                    .substringAfterLast(".")
+            )
+
+            val base = name + packagePart
+
+            val fallbackCandidates = listOf(
+                base,
+                base + activityPart,
+                name + normalize(shortcut.app.packageName)
+            )
+
+            chosen = fallbackCandidates.firstOrNull {
+                it.isNotEmpty() && it !in result
+            }
+
+            // Guarantee a unique command even when
+            // multiple launcher activities share a name.
+            if (chosen == null) {
+                var number = 2
+                var candidate = base + number
+
+                while (candidate in result) {
+                    number++
+                    candidate = base + number
+                }
+
+                chosen = candidate
+            }
         }
+
+        result[chosen] = shortcut
     }
 
-    return candidates.distinct()
+    return result
+}
+
+// Resolve commands against all app names, not just
+// the exact shortest alias.
+//
+// This lets someone type a longer prefix if they want.
+//
+// When two names share a prefix, the shorter app
+// wins until the input distinguishes the longer app.
+
+private fun resolveShortcut(
+    requested: String,
+    aliases: Map<String, AppShortcut>
+): AppShortcut? {
+    val query = normalize(requested)
+
+    if (query.isEmpty()) return null
+
+    // First check exact assigned aliases.
+    aliases[query]?.let { return it }
+
+    val shortcuts = aliases.values.toList()
+
+    // Full app names always work.
+    val exactMatches = shortcuts.filter {
+        normalize(it.label) == query
+    }
+
+    if (exactMatches.size == 1) {
+        return exactMatches.first()
+    }
+
+    // One-letter shortcuts are not allowed.
+    if (query.length < 2) return null
+
+    val matching = shortcuts.filter {
+        normalize(it.label).startsWith(query)
+    }
+
+    if (matching.isEmpty()) return null
+
+    // If the query matches multiple names, choose
+    // the shortest matching app name.
+    //
+    // Example:
+    // "chat" matches Chat and ChatGPT.
+    // Chat wins because its name is shorter.
+    //
+    // "chatg" matches only ChatGPT.
+    return matching.sortedWith(
+        compareBy<AppShortcut>(
+            { normalize(it.label).length },
+            { normalize(it.label) },
+            { appKey(it.app) }
+        )
+    ).first()
 }
 
 private fun buildDirectory(
     context: Context,
     apps: List<PhoneApp>
 ): AppDirectory {
-    val prefs = context.getSharedPreferences(
-        "smthos_quick_launch",
-        Context.MODE_PRIVATE
-    )
-
-    // Find hidden apps first so they never enter
-    // the normal app directory.
     val hiddenResolved = hiddenApps.mapNotNull { label ->
         resolveHiddenApp(label, apps)?.let { app ->
             AppShortcut(
@@ -198,7 +328,9 @@ private fun buildDirectory(
         .toSet()
 
     val visibleApps = apps
-        .filter { appKey(it) !in hiddenKeys }
+        .filter {
+            appKey(it) !in hiddenKeys
+        }
         .filter {
             it.packageName != context.packageName
         }
@@ -209,111 +341,9 @@ private fun buildDirectory(
             )
         }
 
-    val visibleAliases = linkedMapOf<String, AppShortcut>()
-    val hiddenAliases = linkedMapOf<String, AppShortcut>()
-
-    val usedVisible = mutableSetOf<String>()
-    val usedHidden = mutableSetOf<String>()
-
-    val editor = prefs.edit()
-
-    fun assignAliases(
-        shortcuts: List<AppShortcut>,
-        result: MutableMap<String, AppShortcut>,
-        used: MutableSet<String>,
-        preferencePrefix: String
-    ) {
-        val ordered = shortcuts.sortedWith(
-            compareBy<AppShortcut>(
-                { it.label.lowercase() },
-                { appKey(it.app) }
-            )
-        )
-
-        // Restore saved aliases first.
-        for (shortcut in ordered) {
-            val preferenceKey =
-                preferencePrefix + appKey(shortcut.app)
-
-            val saved = prefs.getString(
-                preferenceKey,
-                null
-            )
-
-            if (
-                saved != null &&
-                saved.matches(Regex("[a-z0-9]{3}")) &&
-                used.add(saved)
-            ) {
-                result[saved] = shortcut
-            }
-        }
-
-        // Assign aliases to new apps.
-        for (shortcut in ordered) {
-            if (result.values.any {
-                    appKey(it.app) == appKey(shortcut.app)
-                }) {
-                continue
-            }
-
-            val options =
-                aliasCandidates(shortcut.label) +
-                        aliasCandidates(shortcut.app.name)
-
-            var chosen = options.firstOrNull {
-                it !in used
-            }
-
-            // Fallback for unusual or duplicate names.
-            if (chosen == null) {
-                outer@ for (a in 'a'..'z') {
-                    for (b in 'a'..'z') {
-                        for (c in 'a'..'z') {
-                            val candidate = "$a$b$c"
-
-                            if (candidate !in used) {
-                                chosen = candidate
-                                break@outer
-                            }
-                        }
-                    }
-                }
-            }
-
-            if (chosen != null) {
-                used.add(chosen)
-                result[chosen] = shortcut
-
-                editor.putString(
-                    preferencePrefix + appKey(shortcut.app),
-                    chosen
-                )
-            }
-        }
-    }
-
-    // Separate namespaces let hidden apps have their
-    // own three-letter commands inside ?.
-    assignAliases(
-        visibleApps,
-        visibleAliases,
-        usedVisible,
-        "visible:"
-    )
-
-    assignAliases(
-        hiddenResolved,
-        hiddenAliases,
-        usedHidden,
-        "hidden:"
-    )
-
-    editor.apply()
-
     return AppDirectory(
-        visible = visibleAliases,
-        hidden = hiddenAliases
+        visible = generateAliases(visibleApps),
+        hidden = generateAliases(hiddenResolved)
     )
 }
 
@@ -440,7 +470,6 @@ private fun SmthOS() {
         mutableStateOf("")
     }
 
-    // The only folder is the hidden folder.
     var inHiddenFolder by remember {
         mutableStateOf(false)
     }
@@ -514,6 +543,14 @@ private fun SmthOS() {
         }
     }
 
+    fun activeAliases(): Map<String, AppShortcut> {
+        return if (inHiddenFolder) {
+            directory.hidden
+        } else {
+            directory.visible
+        }
+    }
+
     fun openHiddenFolder() {
         inHiddenFolder = true
 
@@ -569,9 +606,9 @@ private fun SmthOS() {
                 printLine(
                     """
                     QUICK LAUNCH
-                    abc      - Launch app using 3 letters
-                    aliases  - Show normal app shortcuts
-                    apps     - List normal apps
+                    ab       - Launch app with 2+ letters
+                    aliases  - Show shortest app shortcuts
+                    apps     - List apps
 
                     HIDDEN FOLDER
                     ?        - Open hidden apps
@@ -591,14 +628,7 @@ private fun SmthOS() {
             }
 
             lower == "aliases" -> {
-                val activeAliases =
-                    if (inHiddenFolder) {
-                        directory.hidden
-                    } else {
-                        directory.visible
-                    }
-
-                val lines = activeAliases
+                val lines = activeAliases()
                     .toSortedMap()
                     .entries
                     .joinToString("\n") {
@@ -614,14 +644,8 @@ private fun SmthOS() {
             }
 
             lower == "apps" -> {
-                val activeAliases =
-                    if (inHiddenFolder) {
-                        directory.hidden
-                    } else {
-                        directory.visible
-                    }
-
-                val lines = activeAliases.values
+                val lines = activeAliases()
+                    .values
                     .map { it.label }
                     .distinct()
                     .sorted()
@@ -664,19 +688,10 @@ private fun SmthOS() {
                     .substring(5)
                     .trim()
 
-                val activeAliases =
-                    if (inHiddenFolder) {
-                        directory.hidden
-                    } else {
-                        directory.visible
-                    }
-
-                val shortcut =
-                    activeAliases[requested.lowercase()]
-                        ?: activeAliases.values.firstOrNull {
-                            normalize(it.label) ==
-                                    normalize(requested)
-                        }
+                val shortcut = resolveShortcut(
+                    requested,
+                    activeAliases()
+                )
 
                 if (shortcut != null) {
                     launchApp(shortcut)
@@ -688,19 +703,10 @@ private fun SmthOS() {
             }
 
             else -> {
-                val activeAliases =
-                    if (inHiddenFolder) {
-                        directory.hidden
-                    } else {
-                        directory.visible
-                    }
-
-                val shortcut =
-                    activeAliases[lower]
-                        ?: activeAliases.values.firstOrNull {
-                            normalize(it.label) ==
-                                    normalize(command)
-                        }
+                val shortcut = resolveShortcut(
+                    command,
+                    activeAliases()
+                )
 
                 if (shortcut != null) {
                     launchApp(shortcut)
