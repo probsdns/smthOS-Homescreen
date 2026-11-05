@@ -1,4 +1,3 @@
-
 package com.example.smthos
 
 import android.content.Context
