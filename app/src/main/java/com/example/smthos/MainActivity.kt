@@ -1,3 +1,4 @@
+
 package com.example.smthos
 
 import android.content.Context
@@ -28,7 +29,7 @@ import androidx.core.view.WindowCompat
 import kotlinx.coroutines.delay
 import kotlin.random.Random
 
-private const val SMTHOS_VERSION = "v1.4"
+private const val SMTHOS_VERSION = "v1.5"
 
 private val TerminalWhite = Color.White
 private val TerminalBlack = Color.Black
@@ -51,7 +52,9 @@ private val knownPackages = mapOf(
     "TikTok" to "com.zhiliaoapp.musically",
     "YouTube" to "com.google.android.youtube",
     "Chrome" to "com.android.chrome",
-    "Play Store" to "com.android.vending"
+    "Play Store" to "com.android.vending",
+    "SmartThings" to "com.samsung.android.oneconnect",
+    "Google Classroom" to "com.google.android.apps.classroom"
 )
 
 private val preferredNames = mapOf(
@@ -59,6 +62,7 @@ private val preferredNames = mapOf(
     "Google Maps" to "Maps",
     "Google Drive" to "Drive",
     "Google Play Store" to "Play Store",
+    "Google Classroom" to "Classroom",
     "Samsung Notes" to "Notes",
     "Samsung Health" to "Health",
     "Galaxy Store" to "Store"
@@ -87,7 +91,10 @@ private fun appKey(app: PhoneApp): String =
     "${app.packageName}/${app.activityName}"
 
 private fun displayName(app: PhoneApp): String =
-    preferredNames[app.name] ?: app.name
+    preferredNames[app.name] ?: when (app.packageName) {
+        "com.google.android.apps.classroom" -> "Classroom"
+        else -> app.name
+    }
 
 private fun installedApps(context: Context): List<PhoneApp> {
     val intent = Intent(Intent.ACTION_MAIN).apply {
@@ -142,23 +149,16 @@ private fun resolveHiddenApp(
 }
 
 // -------------------------------------------------
-// v1.4 DYNAMIC PREFIX SYSTEM
+// DYNAMIC PREFIX SYSTEM
 // -------------------------------------------------
 //
 // Minimum: 2 letters.
 //
-// Examples:
 // Spotify -> sp
 // Steam   -> st
 //
 // Chat    -> ch
 // ChatGPT -> chatg
-//
-// Shorter names get priority when names overlap.
-//
-// Longer valid prefixes also work:
-// ch, cha, chat -> Chat
-// chatg, chatgp, chatgpt -> ChatGPT
 //
 // Visible and hidden apps use separate directories.
 // -------------------------------------------------
@@ -184,8 +184,6 @@ private fun generateAliases(
         val minimum = minOf(2, name.length)
         var chosen: String? = null
 
-        // Find the shortest prefix that does not belong
-        // to an earlier, shorter app name.
         for (length in minimum..name.length) {
             val candidate = name.take(length)
 
@@ -205,8 +203,6 @@ private fun generateAliases(
             }
         }
 
-        // If two apps have identical names, create
-        // a fallback using their package names.
         if (chosen == null) {
             val packagePart = normalize(
                 shortcut.app.packageName
@@ -230,8 +226,6 @@ private fun generateAliases(
                 it.isNotEmpty() && it !in result
             }
 
-            // Guarantee a unique command even when
-            // multiple launcher activities share a name.
             if (chosen == null) {
                 var number = 2
                 var candidate = base + number
@@ -251,14 +245,6 @@ private fun generateAliases(
     return result
 }
 
-// Resolve commands against all app names, not just
-// the exact shortest alias.
-//
-// This lets someone type a longer prefix if they want.
-//
-// When two names share a prefix, the shorter app
-// wins until the input distinguishes the longer app.
-
 private fun resolveShortcut(
     requested: String,
     aliases: Map<String, AppShortcut>
@@ -267,12 +253,22 @@ private fun resolveShortcut(
 
     if (query.isEmpty()) return null
 
-    // First check exact assigned aliases.
+    // Google Classroom can be launched by either name.
+    // The app still appears as "Classroom" in app lists.
+    if (
+        query == "googleclassroom" ||
+        query == "classroom"
+    ) {
+        aliases.values.firstOrNull {
+            it.app.packageName ==
+                    "com.google.android.apps.classroom"
+        }?.let { return it }
+    }
+
     aliases[query]?.let { return it }
 
     val shortcuts = aliases.values.toList()
 
-    // Full app names always work.
     val exactMatches = shortcuts.filter {
         normalize(it.label) == query
     }
@@ -281,7 +277,6 @@ private fun resolveShortcut(
         return exactMatches.first()
     }
 
-    // One-letter shortcuts are not allowed.
     if (query.length < 2) return null
 
     val matching = shortcuts.filter {
@@ -290,14 +285,6 @@ private fun resolveShortcut(
 
     if (matching.isEmpty()) return null
 
-    // If the query matches multiple names, choose
-    // the shortest matching app name.
-    //
-    // Example:
-    // "chat" matches Chat and ChatGPT.
-    // Chat wins because its name is shorter.
-    //
-    // "chatg" matches only ChatGPT.
     return matching.sortedWith(
         compareBy<AppShortcut>(
             { normalize(it.label).length },
