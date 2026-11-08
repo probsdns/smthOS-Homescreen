@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
-    <!-- Allow smthOS to discover installed apps -->
+    <!-- Discover installed launchable apps -->
     <queries>
         <intent>
             <action android:name="android.intent.action.MAIN" />
@@ -26,13 +26,13 @@
             android:theme="@style/Theme.SmthOS"
             android:windowSoftInputMode="adjustResize">
 
-            <!-- Allow normal app launching -->
+            <!-- Normal app launching -->
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
 
-            <!-- Register smthOS as a home-screen launcher -->
+            <!-- Register as Android home launcher -->
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.HOME" />
