@@ -1,4 +1,3 @@
-
 package com.example.smthos
 
 import android.content.Context
@@ -54,7 +53,7 @@ import kotlinx.coroutines.withContext
 import kotlin.math.atan2
 import kotlin.random.Random
 
-private const val SMTHOS_VERSION = "v1.6"
+private val SMTHOS_VERSION = BuildConfig.SMTHOS_VERSION
 private const val PREFS_NAME = "smthos_settings"
 private const val PREF_WALLPAPER = "wallpaper_uri"
 private const val PREF_TEXT_COLOR = "text_color"
