@@ -364,7 +364,6 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-// Read EXIF orientation before decoding the image.
 private fun wallpaperMatrix(
     context: Context,
     uri: Uri
@@ -410,8 +409,6 @@ private fun wallpaperMatrix(
     }
 }
 
-// Load a reduced-resolution image and apply
-// the rotation/mirroring stored in EXIF metadata.
 private suspend fun loadWallpaper(
     context: Context,
     uri: Uri
@@ -828,7 +825,7 @@ private fun SmthOS() {
 
     val startupOutput = remember {
         listOf(
-            "Type help for all commands and their purpose :D",
+            "Type help for all commands and their actions",
             "",
             """
                   \         /
@@ -1177,7 +1174,7 @@ private fun SmthOS() {
                 .padding(20.dp)
         ) {
             Text(
-                text = "smthOS",
+                text = "smthOS ZFold8UPort",
                 color = textColor,
                 style = MaterialTheme.typography.headlineMedium,
                 fontFamily = FontFamily.Monospace
